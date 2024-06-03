@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-
 import re, sys
 
-adu_file = sys.argv[1]
 
-debug = len(sys.argv) > 2
+debug = False
 
 
 class Store():
@@ -65,6 +63,7 @@ class Store():
     def set_store_value(self, v):
         self.storage[self.ptr]['v'] = v
 
+
 class Tablet():
     pointer = 0
     obverse = []
@@ -73,7 +72,7 @@ class Tablet():
 
     def __init__(self, data):
         reverse = False
-        for line in f.readlines():
+        for line in data.readlines():
             if line.strip():
                 if line.startswith('A-DU'):
                     print(line.replace('A-DU', '\U00010607\U0001062C'))
@@ -90,80 +89,87 @@ class Tablet():
     def get_line(self):
         return self.obverse[self.pointer]
 
-with open(adu_file, 'r') as f:
-    tablet = Tablet(f)
 
-    inbuffer = ''
+def main():
+    adu_file = sys.argv[1]
+    debug = len(sys.argv) > 2
+    with open(adu_file, 'r') as f:
+        tablet = Tablet(f)
 
-    names = {}
-    last_name = ''
-    store = Store()
-    looped = False
+        inbuffer = ''
 
-    while tablet.active:
-        d = tablet.get_line()
-        if debug:
-            print("DEBUG: %d > %s | %s --  %s" % (tablet.pointer, tablet.obverse, tablet.reverse, store))
+        names = {}
+        last_name = ''
+        store = Store()
+        looped = False
 
-        # input
-        if d[0] == 'KI-RO':
-            inbuffer = input('\U00010638\U00010601  ')
-            if not inbuffer.strip():
-                continue
-            try:
-                store.set_store_value(int(inbuffer))
-            except ValueError:
-                store.set_store_value(ord(inbuffer[0]))
-        # output and total check for looping
-        elif 'KU-RO' in d[0]:
-            if len(d) > 1 and d[1].strip(): # we have a commodity to move ptr to
-                store.move_pointer(d[1])
-            out = store.get_current_value()
-            total = 0 if len(d) < 3 else int(d[2])
-            if total != out:
-                # TODO: a not equal KU-RO should loop back to last commodity introdction? 
-                #     rather than the NAME? Looping back to name is simpler for now
+        while tablet.active:
+            d = tablet.get_line()
+            if debug:
+                print("DEBUG: %d > %s | %s --  %s" % (tablet.pointer, tablet.obverse, tablet.reverse, store))
+
+            # input
+            if d[0] == 'KI-RO':
+                inbuffer = input('\U00010638\U00010601  ')
+                if not inbuffer.strip():
+                    continue
+                try:
+                    store.set_store_value(int(inbuffer))
+                except ValueError:
+                    store.set_store_value(ord(inbuffer[0]))
+            # output and total check for looping
+            elif 'KU-RO' in d[0]:
+                if len(d) > 1 and d[1].strip(): # we have a commodity to move ptr to
+                    store.move_pointer(d[1])
+                out = store.get_current_value()
+                total = 0 if len(d) < 3 else int(d[2])
+                if total != out:
+                    # TODO: a not equal KU-RO should loop back to last commodity introdction?
+                    #     rather than the NAME? Looping back to name is simpler for now
+                    if debug:
+                        print(" !! %d != %d" % (total, out))
+                        print(names[last_name])
+                    tablet.pointer = names[last_name]
+                if d[0] != 'PO-TO-KU-RO':
+                    print(chr(out), end='')
+                else:
+                    print(out)
+
+            elif not d[0].strip() and len(d) > 1:
+                if len(d) > 3:
+                    store.store(d[3], -1 * int(d[4]))
+                else:
+                    store.store(d[1], int(d[2]))
+            # Name:
+            else:
+                last_name = d[0]
+                names[d[0]] = tablet.pointer
                 if debug:
-                    print(" !! %d != %d" % (total, out))
-                    print(names[last_name])
-                tablet.pointer = names[last_name]
-            if d[0] != 'PO-TO-KU-RO':
-                print(chr(out), end='')
-            else:
-                print(out)
+                    print("NAME: %s" % d)
+                if len(d) == 3:
+                    store.store(d[1], int(d[2]))
 
-        elif not d[0].strip() and len(d) > 1:
-            if len(d) > 3:
-                store.store(d[3], -1 * int(d[4]))
-            else:
-                store.store(d[1], int(d[2]))
-        # Name:
-        else:
-            last_name = d[0]
-            names[d[0]] = tablet.pointer
-            if debug:
-                print("NAME: %s" % d)
-            if len(d) == 3:
-                store.store(d[1], int(d[2])) 
+            tablet.pointer += 1
 
-        tablet.pointer += 1
+            if tablet.pointer >= len(tablet.obverse):
+                # check if there is a block on the reverse we need to run
+                if tablet.reverse and looped == False:
+                    looped = True
+                    deficit_block = tablet.reverse
+                    deficit_block[0][0] = '' # clear the name, we already have it on the obverse
+                    deficit_block[0][2] = '-' + deficit_block[0][2]
+                    tablet.obverse += deficit_block
+                    continue
+                # check if last line whether we should loop
+                if debug:
+                    print(" %s" % d)
+                print()
+                total = 0 if len(d) < 3 else int(d[2])
+                if store.get_current_value() != total:
+                    tablet.pointer = names[last_name]
+                else:
+                    tablet.active = False
 
-        if tablet.pointer >= len(tablet.obverse):
-            # check if there is a block on the reverse we need to run
-            if tablet.reverse and looped == False:
-                looped = True
-                deficit_block = tablet.reverse
-                deficit_block[0][0] = '' # clear the name, we already have it on the obverse
-                deficit_block[0][2] = '-' + deficit_block[0][2]
-                tablet.obverse += deficit_block
-                continue
-            # check if last line whether we should loop
-            if debug:
-                print(" %s" % d)
-            print()
-            total = 0 if len(d) < 3 else int(d[2])
-            if store.get_current_value() != total:
-                tablet.pointer = names[last_name]
-            else:
-                tablet.active = False
 
+if __name__ == '__main__':
+    main()

@@ -8,3 +8,14 @@ Sadly that site is no longer live online, but is available via the Wayback Machi
 This is an archive of a proof-of-concept interpreter and some examples I wrote for this idea in 2018. It may or may not be complete.
 
 Some more information on the language available at: https://esolangs.org/wiki/A-DU
+
+### Running the examples
+
+Hello, World!
+
+    ./adu.py examples/hw.adu
+
+
+Cat program:
+
+    ./adu.py examples/cat.adu
